@@ -1,0 +1,97 @@
+// Codigo para el ESP32 con el que se controlaria todo el ciclo ORC
+#include <WiFi.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+// Pines
+#define ONE_WIRE_BUS 4        // DS18B20
+#define PRESION_PIN 34        // Sensor presión (ADC)
+#define VOLTAJE_GEN_PIN 35    // Voltaje del generador (ADC)
+#define RELAY_BOMBA 16
+#define RELAY_CONDENSADOR 17
+#define RELAY_INVERSOR 18
+
+// Umbrales
+#define TEMP_MAX 90.0
+#define TEMP_MIN 60.0
+#define PRESION_MAX 2500      // mV ~ según sensor
+#define VOLTAJE_MIN 12.0      // V mínima para activar inversor
+
+// Sensores
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+// WiFi (opcional)
+const char* ssid = "TU_RED";
+const char* password = "TU_PASS";
+
+// Variables
+float temperatura = 0.0;
+int presion_mV = 0;
+int voltajeGenADC = 0;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Pines de salida
+  pinMode(RELAY_BOMBA, OUTPUT);
+  pinMode(RELAY_CONDENSADOR, OUTPUT);
+  pinMode(RELAY_INVERSOR, OUTPUT);
+
+  digitalWrite(RELAY_BOMBA, LOW);
+  digitalWrite(RELAY_CONDENSADOR, LOW);
+  digitalWrite(RELAY_INVERSOR, LOW);
+
+  sensors.begin();
+
+  // Conexión WiFi (opcional)
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando a WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println(" ¡Conectado!");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  // Leer temperatura
+  sensors.requestTemperatures();
+  temperatura = sensors.getTempCByIndex(0);
+
+  // Leer presión (en mV)
+  presion_mV = analogRead(PRESION_PIN) * 3300 / 4095;
+
+  // Leer voltaje del generador (simulado por división de voltaje)
+  voltajeGenADC = analogRead(VOLTAJE_GEN_PIN);
+  float voltajeGen = (voltajeGenADC * 3.3 / 4095.0) * 10.0; // suponer divisor 1:10
+
+  // Mostrar datos
+  Serial.print("Temp: "); Serial.print(temperatura); Serial.print(" °C | ");
+  Serial.print("Presión: "); Serial.print(presion_mV); Serial.print(" mV | ");
+  Serial.print("Voltaje Gen: "); Serial.print(voltajeGen); Serial.println(" V");
+
+  // Control bomba (solo si hay temperatura y presión dentro del rango)
+  if (temperatura >= TEMP_MIN && temperatura <= TEMP_MAX && presion_mV <= PRESION_MAX) {
+    digitalWrite(RELAY_BOMBA, HIGH);
+  } else {
+    digitalWrite(RELAY_BOMBA, LOW);
+  }
+
+  // Condensador (ventilador si temp > 70 °C)
+  if (temperatura >= 70.0) {
+    digitalWrite(RELAY_CONDENSADOR, HIGH);
+  } else {
+    digitalWrite(RELAY_CONDENSADOR, LOW);
+  }
+
+  // Inversor (si hay generación suficiente)
+  if (voltajeGen >= VOLTAJE_MIN) {
+    digitalWrite(RELAY_INVERSOR, HIGH);
+  } else {
+    digitalWrite(RELAY_INVERSOR, LOW);
+  }
+
+  delay(1000); // 1 segundo
+}
